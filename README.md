@@ -1,9 +1,3 @@
-<p align="center">
-<a href="https://packagist.org/packages/subotkevic/laravel-json-translation-helper"><img src="https://poser.pugx.org/subotkevic/laravel-json-translation-helper/d/total.svg" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/subotkevic/laravel-json-translation-helper"><img src="https://poser.pugx.org/subotkevic/laravel-json-translation-helper/v/stable.svg" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/subotkevic/laravel-json-translation-helper"><img src="https://poser.pugx.org/subotkevic/laravel-json-translation-helper/license.svg" alt="License"></a>
-</p>
-
 # JSON Translation Helper for Laravel
 JSON Translation Helper scans your project for `__()`, `lang()` translation helper methods and `@lang` directives, then it creates keys in your JSON translation files. 
 
@@ -14,7 +8,7 @@ And yes, it avoids duplicates – helper creates only non-existing keys. Ready f
 First, install JSON Translation Helper using the Composer require command:
 
 ```
-composer require subotkevic/laravel-json-translation-helper
+composer require nawrasbukhari/translation-scanner
 ```
 
 That's it. Package registers service provider automatically.
@@ -25,14 +19,13 @@ That's it. Package registers service provider automatically.
 
 First, you have to create your translation files for languages you will translate your application to. 
 
-For example, if you want your application to have a Spanish translation, you should create a `resources/lang/es.json` file.
+For example, if you want your application to have a Spanish translation, you should create a `lang/es.json` file.
 
-Of course you can have multiple translation files:
+Of course, you can have multiple translation files:
 ```
-resources/
-    lang/
-        es.json
-        fr.json
+lang/
+    es.json
+    fr.json
 ```
 
 Make sure that your translation files is valid JSON, otherwise our package will not work:
@@ -64,10 +57,10 @@ php artisan translation:scan
 First, publish the configuration file:
 
 ```
-php artisan vendor:publish --provider="JsonTranslationHelper\TranslationHelperServiceProvider"
+php artisan vendor:publish --provider="NawrasBukhariTranslationScanner\TranslationScannerServiceProvider"
 ```
 
-It will bring you `config/translation-helper.php` configuration file. 
+It will bring you `config/translation-scanner.php` configuration file. 
 
 Read the following sections of what you can configure.
 
@@ -103,7 +96,7 @@ You can add more file extensions to `file_extensions` array in the `config/trans
 
 ### Translation helper methods
 
-By default our package looks for `lang()` and `__()` translation helper methods and directives.
+By default, our package looks for `lang()` and `__()` translation helper methods and directives.
 
 But you can extend, modify, or remove them in the config file by modifying `translation_methods` array:
 ```php

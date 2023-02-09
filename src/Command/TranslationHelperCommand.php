@@ -1,6 +1,6 @@
 <?php
 
-namespace JsonTranslationHelper\Command;
+namespace NawrasBukhariTranslationScanner\Command;
 
 use Illuminate\Console\Command;
 
@@ -21,23 +21,23 @@ class TranslationHelperCommand extends Command
      *
      * @return void
      */
-    public function handle()
+    public function handle(): void
     {
-        $translationKeys  = $this->findProjectTranslationsKeys();
+        $translationKeys = $this->findProjectTranslationsKeys();
         $translationFiles = $this->getProjectTranslationFiles();
 
         foreach ($translationFiles as $file) {
             $translationData = $this->getAlreadyTranslatedKeys($file);
-            $added           = [];
+            $added = [];
 
-            $this->line('Language: ' . str_replace('.json', '', basename($file)));
+            $this->line('Language: '.str_replace('.json', '', basename($file)));
 
             foreach ($translationKeys as $key) {
-                if (!isset($translationData[$key])) {
+                if (! isset($translationData[$key])) {
                     $translationData[$key] = '';
-                    $added[]               = $key;
+                    $added[] = $key;
 
-                    $this->warn(" - Added: {$key}");
+                    $this->warn(" - Added: $key");
                 }
             }
 
@@ -58,11 +58,11 @@ class TranslationHelperCommand extends Command
     /**
      * @return array
      */
-    private function findProjectTranslationsKeys()
+    private function findProjectTranslationsKeys(): array
     {
-        $allKeys          = [];
-        $viewsDirectories = config('translation-helper.scan_directories');
-        $fileExtensions   = config('translation-helper.file_extensions');
+        $allKeys = [];
+        $viewsDirectories = config('translation-scanner.scan_directories');
+        $fileExtensions = config('translation-scanner.file_extensions');
 
         foreach ($viewsDirectories as $directory) {
             foreach ($fileExtensions as $extension) {
@@ -76,33 +76,33 @@ class TranslationHelperCommand extends Command
     }
 
     /**
-     * @param array $keys
-     * @param string $dirPath
-     * @param string $fileExt
+     * @param  array  $keys
+     * @param  string  $dirPath
+     * @param  string  $fileExt
      */
-    private function getTranslationKeysFromDir(&$keys, $dirPath, $fileExt = 'php')
+    private function getTranslationKeysFromDir(array &$keys, string $dirPath, string $fileExt = 'php')
     {
-        $files = glob_recursive("{$dirPath}/*.{$fileExt}", GLOB_BRACE);
+        $files = glob_recursive("$dirPath/*.$fileExt", GLOB_BRACE);
 
         foreach ($files as $file) {
             $content = $this->getSanitizedContent($file);
 
-            foreach (config('translation-helper.translation_methods') as $translationMethod) {
+            foreach (config('translation-scanner.translation_methods') as $translationMethod) {
                 $this->getTranslationKeysFromFunction($keys, $translationMethod, $content);
             }
         }
     }
 
     /**
-     * @param array $keys
-     * @param string $functionName
-     * @param string $content
+     * @param  array  $keys
+     * @param  string  $functionName
+     * @param  string  $content
      */
-    private function getTranslationKeysFromFunction(&$keys, $functionName, $content)
+    private function getTranslationKeysFromFunction(array &$keys, string $functionName, string $content)
     {
         $matches = [];
 
-        preg_match_all("#{$functionName}\(\'(.*?)\'\)#", $content, $matches);
+        preg_match_all("#$functionName\(\'(.*?)\'\)#", $content, $matches);
 
         if (! empty($matches)) {
             foreach ($matches[1] as $match) {
@@ -118,19 +118,18 @@ class TranslationHelperCommand extends Command
     /**
      * @return array
      */
-    private function getProjectTranslationFiles()
+    private function getProjectTranslationFiles(): array
     {
-        $path  = config('translation-helper.output_directory');
-        $files = glob("{$path}/*.json", GLOB_BRACE);
+        $path = config('translation-scanner.output_directory');
 
-        return $files;
+        return glob("$path/*.json", GLOB_BRACE);
     }
 
     /**
-     * @param string $filePath
+     * @param  string  $filePath
      * @return array
      */
-    private function getAlreadyTranslatedKeys($filePath)
+    private function getAlreadyTranslatedKeys(string $filePath): array
     {
         $current = json_decode(file_get_contents($filePath), true);
 
@@ -140,19 +139,26 @@ class TranslationHelperCommand extends Command
     }
 
     /**
-     * @param string $filePath
-     * @param array $translations
+     * make the key same as the value
+     * so that the translator can easily translate it
+     *
+     * @param  string  $filePath
+     * @param  array  $translations
      */
-    private function writeNewTranslationFile($filePath, $translations)
+    private function writeNewTranslationFile(string $filePath, array $translations)
     {
+        foreach ($translations as $key => $value) {
+            $translations[$key] = $key;
+        }
+
         file_put_contents($filePath, json_encode($translations, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
     }
 
     /**
-     * @param string $filePath
+     * @param  string  $filePath
      * @return string
      */
-    private function getSanitizedContent($filePath)
+    private function getSanitizedContent(string $filePath): string
     {
         return str_replace("\n", ' ', file_get_contents($filePath));
     }
