@@ -8,7 +8,7 @@ And yes, it avoids duplicates – helper creates only non-existing keys. Ready f
 First, install JSON Translation Helper using the Composer require command:
 
 ```
-composer require nawrasbukhari/translation-scanner
+composer require nawrasbukhari/translation-scanner --dev
 ```
 
 That's it. Package registers service provider automatically.
@@ -26,6 +26,8 @@ Of course, you can have multiple translation files:
 lang/
     es.json
     fr.json
+    en.json
+    ...
 ```
 
 Make sure that your translation files is valid JSON, otherwise our package will not work:
@@ -73,8 +75,7 @@ To specify where you want to scan for translation strings, just modify `scan_dir
  */
 'scan_directories' => [
     app_path(),
-    resource_path('views'),
-    resource_path('assets'),
+    resource_path('views')
 ],
 ``` 
 
