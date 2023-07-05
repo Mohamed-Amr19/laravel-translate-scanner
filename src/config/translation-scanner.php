@@ -13,6 +13,9 @@ return [
 
         /** if you want to scan your `assets` directory, use the following line **/
         resource_path('assets'),
+
+        /** if you want to scan your `routes` directory, use the following line **/
+        base_path('routes'),
     ],
 
     /**

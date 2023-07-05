@@ -80,7 +80,7 @@ class TranslationHelperCommand extends Command
      * @param  string  $dirPath
      * @param  string  $fileExt
      */
-    private function getTranslationKeysFromDir(array &$keys, string $dirPath, string $fileExt = 'php')
+    private function getTranslationKeysFromDir(array &$keys, string $dirPath, string $fileExt = 'php'): void
     {
         $files = glob_recursive("$dirPath/*.$fileExt", GLOB_BRACE);
 
@@ -98,11 +98,11 @@ class TranslationHelperCommand extends Command
      * @param  string  $functionName
      * @param  string  $content
      */
-    private function getTranslationKeysFromFunction(array &$keys, string $functionName, string $content)
+    private function getTranslationKeysFromFunction(array &$keys, string $functionName, string $content): void
     {
         $matches = [];
 
-        preg_match_all("#{$functionName}\(\s*\'(.*?)\'\s*[\)\,]#", $content, $matches);
+        preg_match_all("#$functionName\(\s*\'(.*?)\'\s*[\)\,]#", $content, $matches);
 
         if (! empty($matches)) {
             foreach ($matches[1] as $match) {
@@ -145,7 +145,7 @@ class TranslationHelperCommand extends Command
      * @param  string  $filePath
      * @param  array  $translations
      */
-    private function writeNewTranslationFile(string $filePath, array $translations)
+    private function writeNewTranslationFile(string $filePath, array $translations): void
     {
         foreach ($translations as $key => $value) {
             $translations[$key] = $key;
