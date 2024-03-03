@@ -18,8 +18,6 @@ class TranslationHelperCommand extends Command
 
     /**
      * Execute the console command.
-     *
-     * @return void
      */
     public function handle(): void
     {
@@ -55,9 +53,6 @@ class TranslationHelperCommand extends Command
         }
     }
 
-    /**
-     * @return array
-     */
     private function findProjectTranslationsKeys(): array
     {
         $allKeys = [];
@@ -75,11 +70,6 @@ class TranslationHelperCommand extends Command
         return $allKeys;
     }
 
-    /**
-     * @param  array  $keys
-     * @param  string  $dirPath
-     * @param  string  $fileExt
-     */
     private function getTranslationKeysFromDir(array &$keys, string $dirPath, string $fileExt = 'php'): void
     {
         $files = glob_recursive("$dirPath/*.$fileExt", GLOB_BRACE);
@@ -87,26 +77,26 @@ class TranslationHelperCommand extends Command
         foreach ($files as $file) {
             $content = $this->getSanitizedContent($file);
 
-            foreach (config('translation-scanner.translation_methods') as $translationMethod) {
-                $this->getTranslationKeysFromFunction($keys, $translationMethod, $content);
+            if (is_array(config('translation-scanner.translation_methods'))) {
+                foreach (config('translation-scanner.translation_methods') as $translationMethod) {
+                    $this->getTranslationKeysFromFunction($keys, $translationMethod, $content);
+                }
             }
         }
     }
 
     /**
-     * @param  array  $keys
-     * @param  string  $functionName
-     * @param  string  $content
+     * @fix-bug Cannot find translation keys in the file in case of using double quotes or @lang directive
      */
     private function getTranslationKeysFromFunction(array &$keys, string $functionName, string $content): void
     {
         $matches = [];
 
-        preg_match_all("#$functionName\(\s*\'(.*?)\'\s*[\)\,]#", $content, $matches);
+        preg_match_all("#$functionName\(\s*(['\"])(.*?)\\1\s*[\),]#", $content, $matches);
 
-        if (! empty($matches)) {
-            foreach ($matches[1] as $match) {
-                $match = str_replace('"', "'", str_replace("\'", "'", $match));
+        if (! empty($matches[2])) {
+            foreach ($matches[2] as $match) {
+                $match = str_replace('"', "'", $match);
 
                 if (! empty($match)) {
                     $keys[$match] = $match;
@@ -115,9 +105,6 @@ class TranslationHelperCommand extends Command
         }
     }
 
-    /**
-     * @return array
-     */
     private function getProjectTranslationFiles(): array
     {
         $path = config('translation-scanner.output_directory');
@@ -125,10 +112,6 @@ class TranslationHelperCommand extends Command
         return glob("$path/*.json", GLOB_BRACE);
     }
 
-    /**
-     * @param  string  $filePath
-     * @return array
-     */
     private function getAlreadyTranslatedKeys(string $filePath): array
     {
         $current = json_decode(file_get_contents($filePath), true);
@@ -141,9 +124,6 @@ class TranslationHelperCommand extends Command
     /**
      * make the key same as the value
      * so that the translator can easily translate it
-     *
-     * @param  string  $filePath
-     * @param  array  $translations
      */
     private function writeNewTranslationFile(string $filePath, array $translations): void
     {
@@ -154,10 +134,6 @@ class TranslationHelperCommand extends Command
         file_put_contents($filePath, json_encode($translations, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
     }
 
-    /**
-     * @param  string  $filePath
-     * @return string
-     */
     private function getSanitizedContent(string $filePath): string
     {
         return str_replace("\n", ' ', file_get_contents($filePath));

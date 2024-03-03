@@ -11,11 +11,9 @@ return [
         /** if you want to scan your `resources` directory, use the following line **/
         resource_path('views'),
 
-        /** if you want to scan your `assets` directory, use the following line **/
-        resource_path('assets'),
+    /** if you are using modules, you can add them here **/
+        //app_path('Modules'),
 
-        /** if you want to scan your `routes` directory, use the following line **/
-        base_path('routes'),
     ],
 
     /**
@@ -42,16 +40,9 @@ return [
      * for in your application's code.
      */
     'translation_methods' => [
-        'lang',
+        '@lang',
         '__',
+        'trans',
+        'trans_choice',
     ],
-
-/**
- * Next you need to download a npm package called parvineyvazov/json-translator
- * npm i -g @parvineyvazov/json-translator
- * then change directory to lang directory and run the following command
- * jsontt es.json
- * This will create a new file called es.json
- *
- **/
 ];
