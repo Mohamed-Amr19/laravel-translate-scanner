@@ -2,7 +2,10 @@
 
 namespace NawrasBukhariTranslationScanner\Command;
 
+use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Symfony\Component\Console\Output\ConsoleOutput;
+use Illuminate\Support\Str;
 
 class TranslationHelperCommand extends Command
 {
@@ -21,6 +24,7 @@ class TranslationHelperCommand extends Command
      */
     public function handle(): void
     {
+        $this->output = new ConsoleOutput();
         $this->info('Searching for translation keys...');
         $translationKeys = $this->findProjectTranslationsKeys();
 
@@ -30,7 +34,7 @@ class TranslationHelperCommand extends Command
         }
 
         $this->info('Translation keys have been found!');
-        $translationFiles = $this->getProjectTranslationFiles();
+        $translationFiles = [lang_path('en.json')];
 
         if (empty($translationFiles)) {
             $this->warn('No translation files found. Generating a new translation file.');
@@ -110,6 +114,57 @@ class TranslationHelperCommand extends Command
                     $this->getTranslationKeysFromFunction($keys, $translationMethod, $content);
                 }
             }
+            $this->getTranslationKeysFromFilament($keys, $content);
+        }
+        $this->getFilamentResourceTranslations($keys);
+    }
+    private function getTranslationKeysFromFilament(array &$keys, string $content): void
+    {
+        $matches = [];
+
+        // Regex pattern to match any component using ::make('key') and extract the key
+        preg_match_all("/::make\(['\"](.*?)['\"]\)/", $content, $matches);
+
+        if (!empty($matches[1])) {
+            foreach ($matches[1] as $match) {
+                // Replace underscores with spaces and capitalize the first letter of the string
+                $transformedKey = ucfirst(str_replace('_', ' ', $match));
+
+                if (!empty($transformedKey)) {
+                    $keys[$transformedKey] = $transformedKey;  // Add singular key
+
+                    // Handle plural form using Str::plural()
+                    $pluralKey = ucfirst(Str::plural(str_replace('_', ' ', $match)));
+                    $keys[$pluralKey] = $pluralKey;  // Add plural key
+                }
+            }
+        }
+    }
+
+    private function getFilamentResourceTranslations(array &$keys): void
+    {
+        $resourcePath = app_path('Filament/Resources');
+        $resourceFiles = glob_recursive("$resourcePath/*Resource.php");
+
+        if (empty($resourceFiles)) {
+            $this->warn("No resource files found in: $resourcePath");
+            return;
+        }
+
+        foreach ($resourceFiles as $file) {
+            // Extract resource name (e.g., UserResource.php -> User)
+            $resourceName = basename($file, 'Resource.php');
+
+            // Use regular expression to split camel case words (ProviderType -> Provider Type)
+            $formattedName = preg_replace('/(?<!^)([A-Z])/', ' $1', $resourceName);
+
+            // Handle singular form
+            $singularKey = ucfirst($formattedName);
+            $keys[$singularKey] = $singularKey;
+
+            // Handle plural form using Laravel's Str::plural() for better pluralization
+            $pluralKey = ucfirst(Str::plural($formattedName));
+            $keys[$pluralKey] = $pluralKey;
         }
     }
 
