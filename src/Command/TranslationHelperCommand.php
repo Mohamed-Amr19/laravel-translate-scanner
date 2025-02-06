@@ -2,30 +2,24 @@
 
 namespace NawrasBukhariTranslationScanner\Command;
 
-use Carbon\Carbon;
 use Illuminate\Console\Command;
-use Symfony\Component\Console\Output\ConsoleOutput;
 use Illuminate\Support\Str;
 
 class TranslationHelperCommand extends Command
 {
-    /**
-     * @var string
-     */
     protected $signature = 'translation:scan';
+    protected $description = 'Scans project for translation keys and adds missing ones to en.json';
 
-    /**
-     * @var string
-     */
-    protected $description = 'Searches for translation keys – inserts into JSON translation files.';
+    private array $excludePatterns = [
+        '/^https?:\/\//', // URLs
+        '/^\{\$.*\}/', // Variables with {$prefix} pattern
+        '/^filament-panels::/', // Filament panel resources
+        '/\./' // Any key containing a dot
+    ];
 
-    /**
-     * Execute the console command.
-     */
     public function handle(): void
     {
-        $this->output = new ConsoleOutput();
-        $this->info('Searching for translation keys...');
+        $this->info('Scanning for translation keys...');
         $translationKeys = $this->findProjectTranslationsKeys();
 
         if (empty($translationKeys)) {
@@ -33,44 +27,44 @@ class TranslationHelperCommand extends Command
             return;
         }
 
-        $this->info('Translation keys have been found!');
-        $translationFiles = [lang_path('en.json')];
+        $this->info('Translation keys found! Processing...');
 
-        if (empty($translationFiles)) {
-            $this->warn('No translation files found. Generating a new translation file.');
-            $translationFiles[] = $this->createNewTranslationFile();
+        // Get or create en.json file
+        $enJsonPath = lang_path('en.json');
+        if (!file_exists($enJsonPath)) {
+            $this->info('Creating new en.json file...');
+            file_put_contents($enJsonPath, json_encode([], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
         }
 
-        foreach ($translationFiles as $file) {
-            $this->info('Checking translation file: ' . basename($file));
-            $translationData = $this->getAlreadyTranslatedKeys($file);
-            $added = [];
+        // Process translations
+        $translationData = $this->getAlreadyTranslatedKeys($enJsonPath);
+        $added = [];
 
-            $this->line('Language: ' . str_replace('.json', '', basename($file)));
-
-            foreach ($translationKeys as $key) {
-                if (!isset($translationData[$key])) {
-                    $translationData[$key] = '';
-                    $added[] = $key;
-
-                    $this->warn(" - Added: $key");
-                }
+        foreach ($translationKeys as $key) {
+            if (!isset($translationData[$key])) {
+                $translationData[$key] = $key; // Use key as default translation
+                $added[] = $key;
+                $this->warn(" - Added: $key");
             }
-
-            if ($added) {
-                $this->line('Updating translation file...');
-
-                $this->writeNewTranslationFile($file, $translationData);
-
-                $this->info('Translation file has been updated!');
-            } else {
-                $this->warn('Nothing new found for this language.');
-            }
-
-            $this->line('');
         }
 
-        $this->info('All done!');
+        if ($added) {
+            $this->line('Updating en.json file...');
+            $this->writeTranslationFile($enJsonPath, $translationData);
+            $this->info('en.json has been updated with ' . count($added) . ' new translations!');
+        } else {
+            $this->info('No new translations to add.');
+        }
+    }
+
+    private function shouldIncludeKey(string $key): bool
+    {
+        foreach ($this->excludePatterns as $pattern) {
+            if (preg_match($pattern, $key)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private function findProjectTranslationsKeys(): array
@@ -84,11 +78,18 @@ class TranslationHelperCommand extends Command
             return $allKeys;
         }
 
+        // Scan regular translation keys
         foreach ($viewsDirectories as $directory) {
             foreach ($fileExtensions as $extension) {
                 $this->getTranslationKeysFromDir($allKeys, $directory, $extension);
             }
         }
+
+        // Scan Filament panels
+        $this->scanFilamentPanels($allKeys);
+
+        // Filter out unwanted keys
+        $allKeys = array_filter($allKeys, fn($key) => $this->shouldIncludeKey($key), ARRAY_FILTER_USE_KEY);
 
         if (!empty($allKeys)) {
             ksort($allKeys);
@@ -97,152 +98,173 @@ class TranslationHelperCommand extends Command
         return $allKeys;
     }
 
-    private function getTranslationKeysFromDir(array &$keys, string $dirPath, string $fileExt = 'php'): void
+    private function scanFilamentPanels(array &$keys): void
     {
-        $files = glob_recursive("$dirPath/*.$fileExt", GLOB_BRACE);
+        $filamentPath = app_path('Filament');
+        if (!is_dir($filamentPath)) return;
 
-        if (empty($files)) {
-            $this->warn("No files found in directory: $dirPath with extension: $fileExt");
-            return;
+        // Get all panel directories (Admin, Store, etc.)
+        $panels = array_filter(glob("$filamentPath/*"), 'is_dir');
+
+        foreach ($panels as $panel) {
+            $panelName = basename($panel);
+
+            // Skip if it's not a proper panel directory
+            if ($panelName === '.' || $panelName === '..') continue;
+
+            $this->info("Scanning panel: $panelName");
+
+            // Process panel name for translation
+            $formattedPanelName = preg_replace('/(?<!^)([A-Z])/', ' $1', $panelName);
+            if ($this->shouldIncludeKey($formattedPanelName)) {
+                $keys[ucfirst($formattedPanelName)] = ucfirst($formattedPanelName);
+                $keys[ucfirst(Str::plural($formattedPanelName))] = ucfirst(Str::plural($formattedPanelName));
+            }
+
+            // Scan Resources directory in the panel
+            $this->scanPanelResources("$panel/Resources", $keys);
+
+            // Scan Pages directory in the panel
+            $this->scanPanelPages("$panel/Pages", $keys);
+        }
+    }
+
+    private function scanPanelResources(string $resourcesPath, array &$keys): void
+    {
+        if (!is_dir($resourcesPath)) return;
+
+        // Scan resource files
+        $resources = glob("$resourcesPath/*Resource.php");
+        foreach ($resources as $resource) {
+            $resourceName = basename($resource, 'Resource.php');
+            $formattedName = preg_replace('/(?<!^)([A-Z])/', ' $1', $resourceName);
+
+            // Add singular form
+            $singularKey = ucfirst($formattedName);
+            if ($this->shouldIncludeKey($singularKey)) {
+                $keys[$singularKey] = $singularKey;
+            }
+
+            // Add plural form
+            $pluralKey = ucfirst(Str::plural($formattedName));
+            if ($this->shouldIncludeKey($pluralKey)) {
+                $keys[$pluralKey] = $pluralKey;
+            }
+
+            // Scan resource file content
+            $this->scanResourceFile($resource, $keys);
         }
 
+        // Scan nested directories
+        $directories = glob("$resourcesPath/*/");
+        foreach ($directories as $directory) {
+            $this->scanPanelResources($directory, $keys);
+        }
+    }
+
+    private function scanPanelPages(string $pagesPath, array &$keys): void
+    {
+        if (!is_dir($pagesPath)) return;
+
+        // Scan all PHP files in the Pages directory and its subdirectories
+        $files = glob_recursive("$pagesPath/**/*.php");
         foreach ($files as $file) {
             $content = $this->getSanitizedContent($file);
 
-            if (is_array(config('translation-scanner.translation_methods'))) {
-                foreach (config('translation-scanner.translation_methods') as $translationMethod) {
-                    $this->getTranslationKeysFromFunction($keys, $translationMethod, $content);
-                }
-            }
+            // Scan for Filament-specific translations
             $this->getTranslationKeysFromFilament($keys, $content);
+
+            // Scan for regular translation methods
+            foreach (config('translation-scanner.translation_methods', []) as $method) {
+                $this->getTranslationKeysFromFunction($keys, $method, $content);
+            }
         }
-        $this->getFilamentResourceTranslations($keys);
     }
+
+    private function scanResourceFile(string $resourceFile, array &$keys): void
+    {
+        $content = $this->getSanitizedContent($resourceFile);
+
+        // Scan for form labels, table headers, and other Filament-specific content
+        $this->getTranslationKeysFromFilament($keys, $content);
+
+        // Scan for regular translation methods
+        foreach (config('translation-scanner.translation_methods', []) as $method) {
+            $this->getTranslationKeysFromFunction($keys, $method, $content);
+        }
+    }
+
     private function getTranslationKeysFromFilament(array &$keys, string $content): void
     {
-        $matches = [];
-
-        // Regex pattern to match any component using ::make('key') and extract the key
+        // Match Filament component labels
         preg_match_all("/::make\(['\"](.*?)['\"]\)/", $content, $matches);
-
         if (!empty($matches[1])) {
             foreach ($matches[1] as $match) {
-                // Replace underscores with spaces and capitalize the first letter of the string
                 $transformedKey = ucfirst(str_replace('_', ' ', $match));
-
-                if (!empty($transformedKey)) {
-                    $keys[$transformedKey] = $transformedKey;  // Add singular key
-
-                    // Handle plural form using Str::plural()
+                if (!empty($transformedKey) && $this->shouldIncludeKey($transformedKey)) {
+                    $keys[$transformedKey] = $transformedKey;
                     $pluralKey = ucfirst(Str::plural(str_replace('_', ' ', $match)));
-                    $keys[$pluralKey] = $pluralKey;  // Add plural key
+                    if ($this->shouldIncludeKey($pluralKey)) {
+                        $keys[$pluralKey] = $pluralKey;
+                    }
+                }
+            }
+        }
+
+        // Match translateLabel() usage
+        preg_match_all("/->translateLabel\(\)/", $content, $labelMatches);
+        if (!empty($labelMatches[0])) {
+            preg_match_all("/::make\(['\"](.*?)['\"]\).*?->translateLabel\(\)/", $content, $componentMatches);
+            if (!empty($componentMatches[1])) {
+                foreach ($componentMatches[1] as $match) {
+                    $transformedKey = ucfirst(str_replace('_', ' ', $match));
+                    if ($this->shouldIncludeKey($transformedKey)) {
+                        $keys[$transformedKey] = $transformedKey;
+                    }
                 }
             }
         }
     }
 
-    private function getFilamentResourceTranslations(array &$keys): void
+    private function getTranslationKeysFromDir(array &$keys, string $dirPath, string $fileExt = 'php'): void
     {
-        $resourcePath = app_path('Filament/Resources');
-        $resourceFiles = glob_recursive("$resourcePath/*Resource.php");
+        if (!is_dir($dirPath)) return;
 
-        if (empty($resourceFiles)) {
-            $this->warn("No resource files found in: $resourcePath");
-            return;
-        }
+        $files = glob_recursive("$dirPath/*.$fileExt");
+        foreach ($files as $file) {
+            $content = $this->getSanitizedContent($file);
 
-        foreach ($resourceFiles as $file) {
-            // Extract resource name (e.g., UserResource.php -> User)
-            $resourceName = basename($file, 'Resource.php');
-
-            // Use regular expression to split camel case words (ProviderType -> Provider Type)
-            $formattedName = preg_replace('/(?<!^)([A-Z])/', ' $1', $resourceName);
-
-            // Handle singular form
-            $singularKey = ucfirst($formattedName);
-            $keys[$singularKey] = $singularKey;
-
-            // Handle plural form using Laravel's Str::plural() for better pluralization
-            $pluralKey = ucfirst(Str::plural($formattedName));
-            $keys[$pluralKey] = $pluralKey;
+            foreach (config('translation-scanner.translation_methods', []) as $method) {
+                $this->getTranslationKeysFromFunction($keys, $method, $content);
+            }
         }
     }
 
     private function getTranslationKeysFromFunction(array &$keys, string $functionName, string $content): void
     {
-        $matches = [];
-
         preg_match_all("#$functionName\(\s*(['\"])(.*?)\\1\s*[\),]#", $content, $matches);
-
         if (!empty($matches[2])) {
             foreach ($matches[2] as $match) {
                 $match = str_replace('"', "'", $match);
-
-                if (!empty($match)) {
+                if (!empty($match) && $this->shouldIncludeKey($match)) {
                     $keys[$match] = $match;
                 }
             }
         }
     }
 
-    private function getProjectTranslationFiles(): array
-    {
-        $path = config('translation-scanner.output_directory');
-
-        if (empty($path)) {
-            $this->error('Output directory configuration is missing.');
-            return [];
-        }
-
-        $files = glob("$path/*.json");
-
-        if (empty($files)) {
-            $this->warn("No JSON translation files found in directory: $path");
-        }
-
-        return $files;
-    }
-
-    private function createNewTranslationFile(): string
-    {
-        $path = config('translation-scanner.output_directory');
-
-        if (empty($path)) {
-            $this->error('Output directory configuration is missing.');
-            return '';
-        }
-
-        $timestamp = Carbon::now()->format('Y-m-d_H-i-s');
-        $fileName = "$path/translation_$timestamp.json";
-        file_put_contents($fileName, json_encode([], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
-
-        $this->info('Created new translation file: ' . basename($fileName));
-
-        return $fileName;
-    }
-
     private function getAlreadyTranslatedKeys(string $filePath): array
     {
-        $current = json_decode(file_get_contents($filePath), true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            $this->error('Error decoding JSON from file: ' . $filePath);
-            return [];
-        }
-
+        $current = json_decode(file_get_contents($filePath), true) ?? [];
         if (!empty($current)) {
             ksort($current);
         }
-
         return $current;
     }
 
-    private function writeNewTranslationFile(string $filePath, array $translations): void
+    private function writeTranslationFile(string $filePath, array $translations): void
     {
-        foreach ($translations as $key => $value) {
-            $translations[$key] = $key;
-        }
-
+        ksort($translations);
         file_put_contents($filePath, json_encode($translations, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
     }
 
