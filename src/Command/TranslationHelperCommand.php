@@ -14,7 +14,7 @@ class TranslationHelperCommand extends Command
         '/^https?:\/\//', // URLs
         '/^\{\$.*\}/', // Variables with {$prefix} pattern
         '/^filament-panels::/', // Filament panel resources
-        '/\./' // Any key containing a dot
+        '/[^.]\./' // Any key containing a dot that isn't at the end
     ];
 
     public function handle(): void
