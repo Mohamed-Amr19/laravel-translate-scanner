@@ -3,6 +3,7 @@
 namespace NawrasBukhariTranslationScanner;
 
 use Illuminate\Support\ServiceProvider;
+use NawrasBukhariTranslationScanner\Command\TranslateLocalesCommand;
 use NawrasBukhariTranslationScanner\Command\TranslationHelperCommand;
 
 class TranslationScannerServiceProvider extends ServiceProvider
@@ -15,6 +16,7 @@ class TranslationScannerServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 TranslationHelperCommand::class,
+                TranslateLocalesCommand::class
             ]);
         }
 

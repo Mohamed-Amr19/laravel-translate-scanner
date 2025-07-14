@@ -11,10 +11,11 @@ class TranslationHelperCommand extends Command
     protected $description = 'Scans project for translation keys and adds missing ones to en.json';
 
     private array $excludePatterns = [
-        '/^https?:\/\//', // URLs
-        '/^\{\$.*\}/', // Variables with {$prefix} pattern
-        '/^filament-panels::/', // Filament panel resources
-        '/[^.]\./' // Any key containing a dot that isn't at the end
+        '/^https?:\/\//',            // URLs
+        '/^\{\$.*\}/',               // Variables like {$var}
+        '/^filament-panels::/',      // Filament namespace keys
+        '/[^.]\./',                  // Dot notation (excluding leading dot)
+        '/:[a-zA-Z0-9_]+/'           // Placeholders like :locale, :name
     ];
 
     public function handle(): void
@@ -29,20 +30,18 @@ class TranslationHelperCommand extends Command
 
         $this->info('Translation keys found! Processing...');
 
-        // Get or create en.json file
         $enJsonPath = lang_path('en.json');
         if (!file_exists($enJsonPath)) {
             $this->info('Creating new en.json file...');
             file_put_contents($enJsonPath, json_encode([], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
         }
 
-        // Process translations
         $translationData = $this->getAlreadyTranslatedKeys($enJsonPath);
         $added = [];
 
         foreach ($translationKeys as $key) {
             if (!isset($translationData[$key])) {
-                $translationData[$key] = $key; // Use key as default translation
+                $translationData[$key] = $key;
                 $added[] = $key;
                 $this->warn(" - Added: $key");
             }
@@ -78,17 +77,15 @@ class TranslationHelperCommand extends Command
             return $allKeys;
         }
 
-        // Scan regular translation keys
         foreach ($viewsDirectories as $directory) {
             foreach ($fileExtensions as $extension) {
                 $this->getTranslationKeysFromDir($allKeys, $directory, $extension);
             }
         }
 
-        // Scan Filament panels
         $this->scanFilamentPanels($allKeys);
+        $this->scanModules($allKeys);
 
-        // Filter out unwanted keys
         $allKeys = array_filter($allKeys, fn($key) => $this->shouldIncludeKey($key), ARRAY_FILTER_USE_KEY);
 
         if (!empty($allKeys)) {
@@ -103,14 +100,21 @@ class TranslationHelperCommand extends Command
         $filamentPath = app_path('Filament');
         if (!is_dir($filamentPath)) return;
 
-        // Get all panel directories (Admin, Store, etc.)
-        $panels = array_filter(glob("$filamentPath/*"), 'is_dir');
+        // Check if it's a single-panel structure (Filament/Resources exists directly)
+        if (is_dir("$filamentPath/Resources") || is_dir("$filamentPath/Pages")) {
+            $this->info("Scanning default Filament panel structure...");
 
-        foreach ($panels as $panel) {
+            $this->scanPanelResources("$filamentPath/Resources", $keys);
+            $this->scanPanelPages("$filamentPath/Pages", $keys);
+        }
+
+        // Also scan named panel folders (e.g., Admin, Store)
+        $panelDirs = array_filter(glob("$filamentPath/*"), 'is_dir');
+        foreach ($panelDirs as $panel) {
             $panelName = basename($panel);
 
-            // Skip if it's not a proper panel directory
-            if ($panelName === '.' || $panelName === '..') continue;
+            // Skip if it's not a proper panel folder or already scanned as default
+            if (in_array($panelName, ['Resources', 'Pages'])) continue;
 
             $this->info("Scanning panel: $panelName");
 
@@ -121,11 +125,38 @@ class TranslationHelperCommand extends Command
                 $keys[ucfirst(Str::plural($formattedPanelName))] = ucfirst(Str::plural($formattedPanelName));
             }
 
-            // Scan Resources directory in the panel
+            // Scan Resources and Pages inside this panel
             $this->scanPanelResources("$panel/Resources", $keys);
-
-            // Scan Pages directory in the panel
             $this->scanPanelPages("$panel/Pages", $keys);
+        }
+    }
+
+
+    private function scanModules(array &$keys): void
+    {
+        $modulesPath = base_path('Modules');
+        if (!is_dir($modulesPath)) return;
+
+        $modules = array_filter(glob("$modulesPath/*"), 'is_dir');
+
+        foreach ($modules as $modulePath) {
+
+            $moduleName = basename($modulePath);
+            $this->info("Scanning module: $moduleName");
+
+            $directories = config('translation-scanner.scan_directories', []);
+            $fileExtensions = config('translation-scanner.file_extensions', []);
+
+            foreach ($directories as $directory) {
+                $fullPath = $modulePath . '/' . $directory;
+//                $this->info($fullPath);
+                foreach ($fileExtensions as $ext) {
+                    $this->getTranslationKeysFromDir($keys, $fullPath, $ext);
+                }
+            }
+//            $this->info($modulePath);
+            $this->scanPanelResources("$modulePath/app/Filament/Resources", $keys);
+            $this->scanPanelPages("$modulePath/app/Filament/Pages", $keys);
         }
     }
 
@@ -133,30 +164,25 @@ class TranslationHelperCommand extends Command
     {
         if (!is_dir($resourcesPath)) return;
 
-        // Scan resource files
         $resources = glob("$resourcesPath/*Resource.php");
         foreach ($resources as $resource) {
             $resourceName = basename($resource, 'Resource.php');
             $formattedName = preg_replace('/(?<!^)([A-Z])/', ' $1', $resourceName);
 
-            // Add singular form
             $singularKey = ucfirst($formattedName);
             if ($this->shouldIncludeKey($singularKey)) {
                 $keys[$singularKey] = $singularKey;
             }
 
-            // Add plural form
             $pluralKey = ucfirst(Str::plural($formattedName));
             if ($this->shouldIncludeKey($pluralKey)) {
                 $keys[$pluralKey] = $pluralKey;
             }
 
-            // Scan resource file content
             $this->scanResourceFile($resource, $keys);
         }
 
-        // Scan nested directories
-        $directories = glob("$resourcesPath/*/");
+        $directories = glob("$resourcesPath/*/", GLOB_ONLYDIR);
         foreach ($directories as $directory) {
             $this->scanPanelResources($directory, $keys);
         }
@@ -166,15 +192,11 @@ class TranslationHelperCommand extends Command
     {
         if (!is_dir($pagesPath)) return;
 
-        // Scan all PHP files in the Pages directory and its subdirectories
         $files = glob_recursive("$pagesPath/**/*.php");
         foreach ($files as $file) {
             $content = $this->getSanitizedContent($file);
-
-            // Scan for Filament-specific translations
             $this->getTranslationKeysFromFilament($keys, $content);
 
-            // Scan for regular translation methods
             foreach (config('translation-scanner.translation_methods', []) as $method) {
                 $this->getTranslationKeysFromFunction($keys, $method, $content);
             }
@@ -184,11 +206,8 @@ class TranslationHelperCommand extends Command
     private function scanResourceFile(string $resourceFile, array &$keys): void
     {
         $content = $this->getSanitizedContent($resourceFile);
-
-        // Scan for form labels, table headers, and other Filament-specific content
         $this->getTranslationKeysFromFilament($keys, $content);
 
-        // Scan for regular translation methods
         foreach (config('translation-scanner.translation_methods', []) as $method) {
             $this->getTranslationKeysFromFunction($keys, $method, $content);
         }
@@ -196,7 +215,6 @@ class TranslationHelperCommand extends Command
 
     private function getTranslationKeysFromFilament(array &$keys, string $content): void
     {
-        // Match Filament component labels
         preg_match_all("/::make\(['\"](.*?)['\"]\)/", $content, $matches);
         if (!empty($matches[1])) {
             foreach ($matches[1] as $match) {
@@ -211,7 +229,6 @@ class TranslationHelperCommand extends Command
             }
         }
 
-        // Match translateLabel() usage
         preg_match_all("/->translateLabel\(\)/", $content, $labelMatches);
         if (!empty($labelMatches[0])) {
             preg_match_all("/::make\(['\"](.*?)['\"]\).*?->translateLabel\(\)/", $content, $componentMatches);
@@ -233,7 +250,6 @@ class TranslationHelperCommand extends Command
         $files = glob_recursive("$dirPath/*.$fileExt");
         foreach ($files as $file) {
             $content = $this->getSanitizedContent($file);
-
             foreach (config('translation-scanner.translation_methods', []) as $method) {
                 $this->getTranslationKeysFromFunction($keys, $method, $content);
             }
