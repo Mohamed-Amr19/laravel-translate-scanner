@@ -9,8 +9,9 @@
         }
     ],
     "require": {
-        "php": "^8.0",
-        "laravel/framework": "7.*|8.*|9.*|10.*|11.*|12.*",
+        "php": "^8.2",
+        "laravel/framework": "11.*|12.*",
+        "filament/filament": "^4.0",
         "ext-json": "*"
     },
     "require-dev": {
