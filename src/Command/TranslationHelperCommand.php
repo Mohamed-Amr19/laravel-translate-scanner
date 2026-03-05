@@ -16,7 +16,7 @@ class TranslationHelperCommand extends Command
         '/^filament-panels::/',
         '/^filament-actions::/',     // Added for v4
         '/^filament-forms::/',       // Added for v4
-        '/[^.]\./',
+        '/^[^\s]+\.[^\s]+$/',
         '/:[a-zA-Z0-9_]+/'
     ];
 
